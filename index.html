@@ -46,6 +46,7 @@ var config = {
 };
 
 var player;
+var bad_guy;
 var stars;
 var bombs;
 var platforms;
@@ -64,8 +65,10 @@ function preload ()
     this.load.audio('phou', 'assets/phou.mp3');
     this.load.audio('laugh', 'assets/chloe_laugh.mp3');
     this.load.image('ground', 'assets/platform.png');
+    this.load.image('platform', 'assets/doughnut_platform.png');
     this.load.image('star', 'assets/star.png');
     this.load.image('bomb', 'assets/bomb.png');
+    this.load.image('baddie', 'assets/bad.png');
     this.load.spritesheet('dude', 'assets/super_kawai_2.png', { frameWidth: 64, frameHeight: 64 });
 }
 
@@ -84,12 +87,14 @@ function create ()
 
     //  Here we create the ground.
     //  Scale it to fit the width of the game (the original sprite is 400x32 in size)
-    platforms.create(400, 568, 'ground').setScale(2).refreshBody();
+    platforms.create(400, 568, 'platform').setScale(1.5).refreshBody();
 
     //  Now let's create some ledges
-    platforms.create(600, 400, 'ground');
-    platforms.create(50, 250, 'ground');
-    platforms.create(750, 220, 'ground');
+    //  Each ledge is a chain of 3 doughnuts (~440px wide, close to the original 400px)
+    createDoughnutLedge(600, 400, 3);
+    // platforms.create(600, 400, 'ground');
+    createDoughnutLedge(50, 250, 3);
+    createDoughnutLedge(750, 220, 3);
 
     // The player and its settings
     player = this.physics.add.sprite(100, 450, 'dude');
@@ -101,6 +106,17 @@ function create ()
     //  Player physics properties. Give the little guy a slight bounce.
     player.setBounce(0.2);
     player.setCollideWorldBounds(true);
+
+    // bad guy
+    bad_guy = this.physics.add.sprite(300, 450, 'baddie');
+    
+    bad_guy.setScale(1);
+    bad_guy.body.setSize(29, 48);
+    bad_guy.body.setOffset(17, 16);
+
+    //  Player physics properties. Give the little guy a slight bounce.
+    bad_guy.setBounce(0.2);
+    bad_guy.setCollideWorldBounds(true);
 
     //  Our player animations, turning, walking left and walking right.
     this.anims.create({
@@ -157,6 +173,7 @@ function create ()
     this.physics.add.collider(player, platforms);
     this.physics.add.collider(stars, platforms);
     this.physics.add.collider(bombs, platforms);
+    this.physics.add.collider(bad_guy, platforms);
 
     //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
     this.physics.add.overlap(player, stars, collectStar, null, this);
@@ -193,6 +210,20 @@ function update ()
     if ((cursors.up.isDown || touch.jump) && player.body.touching.down)
     {
         player.setVelocityY(-330);
+    }
+}
+
+//  Chains `count` doughnuts side by side, centred on x
+//  The doughnut sprite is 512x112: scale it down to the original 32px platform height
+function createDoughnutLedge (x, y, count)
+{
+    var scale = 32 / 112;
+    var width = 512 * scale;
+    var startX = x - (width * (count - 1)) / 2;
+
+    for (var i = 0; i < count; i++)
+    {
+        platforms.create(startX + i * width, y, 'platform').setScale(scale).refreshBody();
     }
 }
 
