@@ -49,13 +49,22 @@ var player;
 var bad_guy;
 var stars;
 var bombs;
+var brocolis;
 var platforms;
 var cursors;
 var score = 0;
+var level = 1;
 var gameOver = false;
 var scoreText;
 var background;
 var touch = { left: false, right: false, jump: false };
+
+//  The bad guy walks back and forth on the highest ledge (x 531 -> 969, top at y 204)
+var BAD_GUY_SPAWN_X = 770;
+var BAD_GUY_SPAWN_Y = 150;
+var BAD_GUY_MIN_X = 560;
+var BAD_GUY_MAX_X = 770;
+var BAD_GUY_SPEED = 80;
 
 var game = new Phaser.Game(config);
 
@@ -70,6 +79,7 @@ function preload ()
     this.load.image('star', 'assets/doughnut.png');
     this.load.image('bomb', 'assets/bomb.png');
     this.load.image('baddie', 'assets/bad.png');
+    this.load.image('brocoli', 'assets/brocoli.png');
     this.load.spritesheet('dude', 'assets/super_kawai_2.png', { frameWidth: 64, frameHeight: 64 });
 }
 
@@ -77,6 +87,7 @@ function create ()
 {
     //  Reset the state, globals survive a scene restart
     score = 0;
+    level = 1;
     gameOver = false;
     touch = { left: false, right: false, jump: false };
 
@@ -109,16 +120,19 @@ function create ()
     player.setBounce(0.2);
     player.setCollideWorldBounds(true);
 
-    // bad guy
-    bad_guy = this.physics.add.sprite(300, 450, 'baddie');
-    
-    bad_guy.setScale(1);
+    //  The bad guy starts at the far right of the highest ledge and walks left
+    bad_guy = this.physics.add.sprite(BAD_GUY_SPAWN_X, BAD_GUY_SPAWN_Y, 'baddie');
+
+    bad_guy.setScale(1.5);
     bad_guy.body.setSize(29, 48);
     bad_guy.body.setOffset(17, 16);
 
-    //  Player physics properties. Give the little guy a slight bounce.
-    bad_guy.setBounce(0.2);
+    bad_guy.setBounce(0);
     bad_guy.setCollideWorldBounds(true);
+    //  The player can't shove him off the ledge, but he still lands on the platforms
+    bad_guy.body.pushable = false;
+    bad_guy.setVelocityX(-BAD_GUY_SPEED);
+    bad_guy.setFlipX(false);
 
     //  Our player animations, turning, walking left and walking right.
     this.anims.create({
@@ -168,6 +182,16 @@ function create ()
 
     bombs = this.physics.add.group();
 
+    //  Brocolis shot by the bad guy every 5 seconds
+    brocolis = this.physics.add.group();
+
+    this.time.addEvent({ delay: 5000, loop: true, callback: shootBrocoli, callbackScope: this });
+
+    //  Only brocolis report hitting the world bounds: remove them at the screen edges
+    this.physics.world.on('worldbounds', function (body) {
+        body.gameObject.destroy();
+    });
+
     //  The score
     scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
 
@@ -176,11 +200,14 @@ function create ()
     this.physics.add.collider(stars, platforms);
     this.physics.add.collider(bombs, platforms);
     this.physics.add.collider(bad_guy, platforms);
+    this.physics.add.collider(brocolis, platforms);
 
     //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
     this.physics.add.overlap(player, stars, collectStar, null, this);
 
     this.physics.add.collider(player, bombs, hitBomb, null, this);
+    this.physics.add.collider(player, brocolis, hitBomb, null, this);
+    this.physics.add.collider(player, bad_guy, hitBadGuy, null, this);
 }
 
 function update ()
@@ -213,6 +240,21 @@ function update ()
     {
         player.setVelocityY(-330);
     }
+
+    //  Turn around at the ends of the ledge, facing the walking direction
+    if (bad_guy.active)
+    {
+        if (bad_guy.x <= BAD_GUY_MIN_X)
+        {
+            bad_guy.setVelocityX(BAD_GUY_SPEED);
+            bad_guy.setFlipX(true);
+        }
+        else if (bad_guy.x >= BAD_GUY_MAX_X)
+        {
+            bad_guy.setVelocityX(-BAD_GUY_SPEED);
+            bad_guy.setFlipX(false);
+        }
+    }
 }
 
 //  Chains `count` doughnuts side by side, centred on x
@@ -240,7 +282,9 @@ function collectStar (player, star)
     if (stars.countActive(true) === 0)
     {
         this.sound.play('laugh');
-        //  A new batch of stars to collect
+        //  Next level: a new batch of stars to collect
+        level++;
+
         stars.children.iterate(function (child) {
 
             child.enableBody(true, child.x, 0, true, true);
@@ -255,9 +299,63 @@ function collectStar (player, star)
         bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
         bomb.body.allowGravity = false;
 
+        //  Bring the bad guy back if he was stomped
+        if (!bad_guy.active)
+        {
+            bad_guy.enableBody(true, BAD_GUY_SPAWN_X, BAD_GUY_SPAWN_Y, true, true);
+            bad_guy.setVelocityX(-BAD_GUY_SPEED);
+            bad_guy.setFlipX(false);
+        }
+
     } else {
         
         this.sound.play('erin');
+    }
+}
+
+function shootBrocoli ()
+{
+    if (gameOver || !bad_guy.active)
+    {
+        return;
+    }
+
+    //  One brocoli per level, 1 second apart
+    for (var i = 0; i < level; i++)
+    {
+        this.time.delayedCall(i * 1000, fireBrocoli, null, this);
+    }
+}
+
+function fireBrocoli ()
+{
+    if (gameOver || !bad_guy.active)
+    {
+        return;
+    }
+
+    //  Shoot towards the player's side
+    var dir = (player.x < bad_guy.x) ? -1 : 1;
+
+    var brocoli = brocolis.create(bad_guy.x + dir * 30, bad_guy.y, 'brocoli');
+    brocoli.setScale(2);
+    brocoli.setBounce(0.8);
+    brocoli.setVelocity(dir * 200, -150);
+    brocoli.setCollideWorldBounds(true);
+    brocoli.body.onWorldBounds = true;
+}
+
+function hitBadGuy (player, bad_guy)
+{
+    //  Landing on his head gets rid of him, any other contact is game over
+    if (player.body.touching.down && bad_guy.body.touching.up)
+    {
+        bad_guy.disableBody(true, true);
+        player.setVelocityY(-250);
+    }
+    else
+    {
+        hitBomb.call(this, player, bad_guy);
     }
 }
 
